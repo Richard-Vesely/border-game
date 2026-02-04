@@ -1,0 +1,663 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A–B–C Border Game</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 900px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin: 12px 0; }
+    input, button { padding: 8px 10px; font-size: 14px; }
+    button { cursor: pointer; }
+    .muted { color: #666; }
+    pre { background: #f6f6f6; padding: 12px; border-radius: 10px; overflow: auto; }
+    .big { font-size: 18px; font-weight: 700; }
+    .ok { color: #0a7; font-weight: 600; }
+    .warn { color: #b50; font-weight: 600; }
+    .err { color: #b00; font-weight: 600; }
+    /* Battlefield visuals */
+
+    :root {
+      --ink: #1b1b1b;
+      --muted: #666;
+      --field: #f7f1e6;
+      --field-edge: #d9c9ad;
+      --castle: #c9a46a;
+      --castle-edge: #7a5a2c;
+      --battle: #8b8f95;
+      --battle-edge: #4e535a;
+      --accent: #b73a2f;
+      --accent-soft: #f3c9c4;
+    }
+
+    .battlefield {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr 1.4fr;
+      gap: 12px;
+      align-items: end;
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #f9f3e7 0%, #f2e6d2 100%);
+      border: 1px solid var(--field-edge);
+    }
+
+    .castle-block,
+    .battle-node {
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+    }
+
+    .castle-count {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 18px;
+      color: #fff;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.35);
+    }
+
+
+    .castle {
+      width: 72px;
+      height: 54px;
+      border-radius: 8px;
+      border: 2px solid var(--castle-edge);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.4), rgba(0,0,0,0))
+        , var(--castle);
+      position: relative;
+      box-shadow: 0 6px 0 rgba(0,0,0,0.08);
+    }
+
+    .castle::before {
+      content: "";
+      position: absolute;
+      top: -10px;
+      left: 6px;
+      right: 6px;
+      height: 12px;
+      background: repeating-linear-gradient(
+        90deg,
+        var(--castle) 0,
+        var(--castle) 10px,
+        transparent 10px,
+        transparent 14px
+      );
+      border: 2px solid var(--castle-edge);
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+    }
+
+    .castle-underline {
+      width: 80px;
+      height: 4px;
+      border-radius: 999px;
+      background: #999;
+      opacity: 0.6;
+    }
+
+    .battlefield[data-my-role="p1"] .castle-block.p1 .castle-underline,
+    .battlefield[data-my-role="p2"] .castle-block.p2 .castle-underline {
+      background: #2a6bff;
+      opacity: 1;
+    }
+
+    .battlefield[data-my-role="p1"] .castle-block.p2 .castle-underline,
+    .battlefield[data-my-role="p2"] .castle-block.p1 .castle-underline {
+      background: #d83a3a;
+      opacity: 1;
+    }
+
+    .castle-label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .battle-icon {
+      display: grid;
+      place-items: center;
+      color: #1b1b1b;
+      font-weight: 800;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #c2c6cc, var(--battle));
+      border: 2px solid var(--battle-edge);
+      position: relative;
+    }
+
+        .battle-icon::before {
+      transform: rotate(45deg);
+    }
+
+    .battle-icon::after {
+      transform: rotate(-45deg);
+    }
+
+    .battle-label {
+      display: none;
+
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .border-tag {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      opacity: 0;
+      transform: translateY(-2px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .battle-node.active .battle-icon {
+      box-shadow: 0 0 0 4px var(--accent-soft), 0 6px 0 rgba(0,0,0,0.08);
+      border-color: var(--accent);
+    }
+
+    .battle-node.active .battle-icon::before,
+    .battle-node.active .battle-icon::after {
+      content: "";
+      position: absolute;
+      width: 28px;
+      height: 4px;
+      background: #d83a3a;
+      top: 21px;
+      left: 9px;
+      border-radius: 3px;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+    }
+
+    .battle-node.active .battle-icon::before {
+      transform: rotate(45deg);
+    }
+
+    .battle-node.active .battle-icon::after {
+      transform: rotate(-45deg);
+    }
+
+    .battle-node.active .border-tag {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 720px) {
+      .battlefield {
+        grid-template-columns: 1fr 1fr 1fr;
+        grid-auto-rows: min-content;
+        row-gap: 14px;
+      }
+      .castle-block {
+        grid-column: span 3;
+      }
+    }
+
+  </style>
+</head>
+<body>
+  <h1>A–B–C Border Game (2 players)</h1>
+  <p class="muted">
+    Create a room, send the code to a friend, both join. Each round: choose 0..remaining, submit. Higher wins and pushes border.
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <button id="createRoomBtn">Create room</button>
+      <input id="roomCodeInput" placeholder="Room code (e.g. 4f9k2d)" />
+      <button id="joinRoomBtn">Join room</button>
+    </div>
+    <p id="status" class="muted"></p>
+    <p id="roomInfo" class="muted"></p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="big">Border: <span id="borderLabel">—</span></div>
+      <div>Turn: <span id="turnLabel">—</span></div>
+      <div>Winner: <span id="winnerLabel">—</span></div>
+    </div>
+
+
+    <div class="battlefield" aria-label="Battlefield" data-my-role="">
+      <div class="castle-block p1">
+        <div class="castle" aria-hidden="true">
+          <div class="castle-count" id="p1SoldiersVisual">--</div>
+        </div>
+        <div class="castle-underline" aria-hidden="true"></div>
+        <div class="castle-label">Player 1</div>
+      </div>
+      <div class="battle-node" data-index="0">
+        <div class="battle-icon" aria-hidden="true">A</div>
+        <div class="border-tag">Border</div>
+        <div class="battle-label">A</div>
+      </div>
+      <div class="battle-node" data-index="1">
+        <div class="battle-icon" aria-hidden="true">B</div>
+        <div class="border-tag">Border</div>
+        <div class="battle-label">B</div>
+      </div>
+      <div class="battle-node" data-index="2">
+        <div class="battle-icon" aria-hidden="true">C</div>
+        <div class="border-tag">Border</div>
+        <div class="battle-label">C</div>
+      </div>
+      <div class="castle-block p2">
+        <div class="castle" aria-hidden="true">
+          <div class="castle-count" id="p2SoldiersVisual">--</div>
+        </div>
+        <div class="castle-underline" aria-hidden="true"></div>
+        <div class="castle-label">Player 2</div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div>Player 1 soldiers: <span id="p1Soldiers">—</span></div>
+      <div>Player 2 soldiers: <span id="p2Soldiers">—</span></div>
+    </div>
+
+    <hr />
+
+    <div class="row">
+      <div>Your role: <strong id="myRole">—</strong></div>
+      <div>Your soldiers: <strong id="mySoldiers">—</strong></div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <input id="sendInput" type="number" min="0" step="1" placeholder="Soldiers to send" />
+      <button id="submitBtn" disabled>Submit move</button>
+      <span id="submitState" class="muted"></span>
+    </div>
+
+    <p class="muted" style="margin-top:10px;">
+      Round submissions: P1=<span id="p1Send">—</span>, P2=<span id="p2Send">—</span>
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="big">Log</div>
+    <pre id="log"></pre>
+  </div>
+
+  <script type="module">
+    // 1) Paste your Firebase config here (Firebase Console -> Project settings -> Web app)
+    const firebaseConfig = {
+
+apiKey: "AIzaSyCedZ0_6Y6crdmVbBhfmtTta0O_uLclNnM",
+
+authDomain: "border-game-8d275.firebaseapp.com",
+
+databaseURL: "https://border-game-8d275-default-rtdb.europe-west1.firebasedatabase.app",
+
+projectId: "border-game-8d275",
+
+storageBucket: "border-game-8d275.firebasestorage.app",
+
+messagingSenderId: "1059090967375",
+
+appId: "1:1059090967375:web:b5d7d47386328d3348f33a"
+
+};
+
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import {
+      getDatabase, ref, set, get, update, onValue, runTransaction, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    const $ = (id) => document.getElementById(id);
+    const logEl = $("log");
+    const statusEl = $("status");
+    const roomInfoEl = $("roomInfo");
+    const myRoleEl = $("myRole");
+    const mySoldiersEl = $("mySoldiers");
+    const borderLabelEl = $("borderLabel");
+    const turnLabelEl = $("turnLabel");
+    const winnerLabelEl = $("winnerLabel");
+    const p1SoldiersEl = $("p1Soldiers");
+    const p2SoldiersEl = $("p2Soldiers");
+    const sendInputEl = $("sendInput");
+    const submitBtnEl = $("submitBtn");
+    const submitStateEl = $("submitState");
+    const p1SendEl = $("p1Send");
+    const p2SendEl = $("p2Send");
+
+    const p1SoldiersVisualEl = $("p1SoldiersVisual");
+    const p2SoldiersVisualEl = $("p2SoldiersVisual");
+    const battleNodeEls = Array.from(document.querySelectorAll(".battle-node"));
+    const battlefieldEl = document.querySelector(".battlefield");
+
+    const createRoomBtn = $("createRoomBtn");
+    const joinRoomBtn = $("joinRoomBtn");
+    const roomCodeInput = $("roomCodeInput");
+
+    const STATIONS = ["A", "B", "C"];
+
+    let uid = null;
+    let roomId = null;
+    let myRole = null; // "p1" or "p2"
+    let roomUnsub = null;
+
+    function log(msg) {
+      logEl.textContent = (msg + "\n" + logEl.textContent).slice(0, 6000);
+    }
+
+    function setStatus(msg, cls="muted") {
+      statusEl.className = cls;
+      statusEl.textContent = msg;
+    }
+
+    function randomRoomCode() {
+      return Math.random().toString(36).slice(2, 8);
+    }
+
+    function borderLabel(i) {
+      // Show A | B | C with a marker under current border station
+      return `${STATIONS[0]} - ${STATIONS[1]} - ${STATIONS[2]}  (at ${STATIONS[i]})`;
+    }
+
+    function updateBattlefield(border, s1, s2) {
+      if (p1SoldiersVisualEl) p1SoldiersVisualEl.textContent = s1 ?? "--";
+      if (p2SoldiersVisualEl) p2SoldiersVisualEl.textContent = s2 ?? "--";
+
+      battleNodeEls.forEach((el, idx) => {
+        const active = idx === border;
+        el.classList.toggle("active", active);
+        el.setAttribute("aria-current", active ? "true" : "false");
+      });
+    }
+
+
+    async function ensureSignedIn() {
+      if (auth.currentUser) return auth.currentUser;
+      await signInAnonymously(auth);
+      return auth.currentUser;
+    }
+
+    async function createRoom() {
+      const user = await ensureSignedIn();
+      uid = user.uid; // ensure uid is set (onAuthStateChanged may not have fired yet)
+      const code = randomRoomCode();
+      const roomRef = ref(db, `rooms/${code}`);
+
+      const initial = {
+        createdAt: serverTimestamp(),
+        players: { p1: uid, p2: null },
+        state: {
+          border: 1,          // 0=A, 1=B, 2=C
+          soldiers: { p1: 100, p2: 100 },
+          turn: 1,
+          winner: null
+        },
+        round: {
+          p1Send: null,
+          p2Send: null,
+          resolvedTurn: 0
+        },
+        log: [
+          { t: Date.now(), m: "Room created. P1 joined." }
+        ]
+      };
+
+      await set(roomRef, initial);
+      roomId = code;
+      myRole = "p1";
+      roomCodeInput.value = code;
+      attachRoomListener();
+      setStatus(`Created room ${code}. You are Player 1. Share the code with Player 2.`, "ok");
+      log(`Created room ${code} as P1`);
+    }
+
+    async function joinRoom(code) {
+      const user = await ensureSignedIn();
+      uid = user.uid; // ensure uid is set (onAuthStateChanged may not have fired yet)
+      const roomRef = ref(db, `rooms/${code}`);
+      const snap = await get(roomRef);
+      if (!snap.exists()) {
+        setStatus("Room not found.", "err");
+        return;
+      }
+      const data = snap.val();
+      const p1 = data.players?.p1 ?? null;
+      const p2 = data.players?.p2 ?? null;
+
+      if (p1 === uid) {
+        roomId = code; myRole = "p1";
+      } else if (p2 === uid) {
+        roomId = code; myRole = "p2";
+      } else if (!p2) {
+        await update(roomRef, {
+          "players/p2": uid,
+          "log": (data.log || []).concat([{ t: Date.now(), m: "P2 joined." }])
+        });
+        roomId = code; myRole = "p2";
+      } else {
+        setStatus("Room is full (already has 2 players).", "err");
+        return;
+      }
+
+      attachRoomListener();
+      setStatus(`Joined room ${code} as ${myRole.toUpperCase()}.`, "ok");
+      log(`Joined room ${code} as ${myRole}`);
+    }
+
+    function attachRoomListener() {
+      if (!roomId) return;
+      const roomRef = ref(db, `rooms/${roomId}`);
+      if (roomUnsub) roomUnsub();
+
+      roomUnsub = onValue(roomRef, (snap) => {
+        const data = snap.val();
+        if (!data) return;
+
+        const { state, round, players } = data;
+        const border = state.border;
+        const s1 = state.soldiers.p1;
+        const s2 = state.soldiers.p2;
+
+        roomInfoEl.textContent = `Room: ${roomId} | Players: ${players.p1 ? "P1" : "—"} + ${players.p2 ? "P2" : "—"}`;
+        myRoleEl.textContent = myRole ? myRole.toUpperCase() : "—";
+
+        borderLabelEl.textContent = borderLabel(border);
+        turnLabelEl.textContent = state.turn;
+        winnerLabelEl.textContent = state.winner ? state.winner.toUpperCase() : "—";
+
+        p1SoldiersEl.textContent = s1;
+        p2SoldiersEl.textContent = s2;
+        updateBattlefield(border, s1, s2);
+
+        const myS = myRole === "p1" ? s1 : (myRole === "p2" ? s2 : null);
+        mySoldiersEl.textContent = myS ?? "—";
+
+        p1SendEl.textContent = round.p1Send ?? "—";
+        p2SendEl.textContent = round.p2Send ?? "—";
+
+        // Enable submit only when:
+        // - I have a role
+        // - game not won
+        // - both players present
+        // - I haven't submitted this turn
+        const bothPlayers = !!players.p1 && !!players.p2;
+        const gameOver = !!state.winner;
+        const iSubmitted = myRole === "p1" ? round.p1Send != null : round.p2Send != null;
+
+        submitBtnEl.disabled = !myRole || !bothPlayers || gameOver || iSubmitted;
+
+        if (gameOver) {
+          submitStateEl.textContent = "Game over.";
+        } else if (!bothPlayers) {
+          submitStateEl.textContent = "Waiting for second player...";
+        } else if (iSubmitted) {
+          submitStateEl.textContent = "Move submitted. Waiting for opponent...";
+        } else {
+          submitStateEl.textContent = "";
+        }
+      });
+    }
+
+    function clampInt(n, min, max) {
+      n = Math.floor(Number(n));
+      if (!Number.isFinite(n)) return min;
+      return Math.max(min, Math.min(max, n));
+    }
+
+    async function submitMove() {
+      if (!roomId || !myRole) return;
+
+      const roomRef = ref(db, `rooms/${roomId}`);
+      const snap = await get(roomRef);
+      if (!snap.exists()) return;
+
+      const data = snap.val();
+      const state = data.state;
+      const round = data.round;
+
+      if (state.winner) return;
+
+      const myRemaining = myRole === "p1" ? state.soldiers.p1 : state.soldiers.p2;
+      const send = clampInt(sendInputEl.value, 0, myRemaining);
+
+      // Write my send
+      await update(roomRef, {
+        [`round/${myRole}Send`]: send
+      });
+
+      // Try to resolve if both are present
+      await tryResolveRound();
+      sendInputEl.value = "";
+    }
+
+    async function tryResolveRound() {
+      if (!roomId) return;
+      const roomRef = ref(db, `rooms/${roomId}`);
+
+      // Do resolution atomically so both clients racing doesn't double-resolve.
+      await runTransaction(roomRef, (room) => {
+        if (!room) return room;
+        const { state, round, players } = room;
+
+        if (!players?.p1 || !players?.p2) return room;
+        if (state?.winner) return room;
+
+        const turn = state.turn ?? 1;
+        const resolvedTurn = round?.resolvedTurn ?? 0;
+
+        // already resolved this turn
+        if (resolvedTurn >= turn) return room;
+
+        const p1Send = round?.p1Send;
+        const p2Send = round?.p2Send;
+
+        if (p1Send == null || p2Send == null) return room; // not ready
+
+        // Apply casualties (both lose what they sent)
+        const s1 = Math.max(0, (state.soldiers.p1 ?? 0) - p1Send);
+        const s2 = Math.max(0, (state.soldiers.p2 ?? 0) - p2Send);
+
+        let border = state.border ?? 1;
+        let roundWinner = null;
+
+        if (p1Send > p2Send) roundWinner = "p1";
+        else if (p2Send > p1Send) roundWinner = "p2";
+
+        // Determine overall win conditions
+        let gameWinner = null;
+
+        if (roundWinner === "p1") {
+          if (border === 2) {
+            // battle at C and P1 wins => P1 wins game
+            gameWinner = "p1";
+          } else {
+            border = border + 1;
+          }
+        } else if (roundWinner === "p2") {
+          if (border === 0) {
+            // battle at A and P2 wins => P2 wins game
+            gameWinner = "p2";
+          } else {
+            border = border - 1;
+          }
+        } // tie => no border change
+
+        room.state = {
+          ...state,
+          border,
+          soldiers: { p1: s1, p2: s2 },
+          turn: turn + 1,
+          winner: gameWinner
+        };
+
+        room.round = {
+          p1Send: null,
+          p2Send: null,
+          resolvedTurn: turn
+        };
+
+        const msg =
+          roundWinner
+            ? `Turn ${turn}: ${roundWinner.toUpperCase()} wins (${p1Send} vs ${p2Send}). Border now at ${STATIONS[border]}.`
+            : `Turn ${turn}: tie (${p1Send} vs ${p2Send}). Border stays at ${STATIONS[border]}.`;
+
+        room.log = (room.log || []).concat([
+          { t: Date.now(), m: msg },
+          ...(gameWinner ? [{ t: Date.now(), m: `GAME OVER: ${gameWinner.toUpperCase()} wins.` }] : [])
+        ]).slice(-50);
+
+        return room;
+      });
+    }
+
+    // UI wiring
+    createRoomBtn.addEventListener("click", createRoom);
+    joinRoomBtn.addEventListener("click", () => joinRoom(roomCodeInput.value.trim().toLowerCase()));
+
+    submitBtnEl.addEventListener("click", submitMove);
+
+    // Auth boot
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        uid = user.uid;
+        setStatus("Signed in (anonymous). Ready.", "ok");
+      } else {
+        setStatus("Not signed in yet...", "warn");
+      }
+    });
+
+    // Auto sign-in (anonymous)
+    await ensureSignedIn();
+
+    // Optional: show room log updates in the UI log panel
+    // (We already show local log messages; this displays shared room log too.)
+    const logRefHandler = () => {
+      if (!roomId) return;
+      const lref = ref(db, `rooms/${roomId}/log`);
+      onValue(lref, (snap) => {
+        const arr = snap.val() || [];
+        const lines = arr.slice().reverse().map(x => x.m);
+        logEl.textContent = lines.join("\n");
+      });
+    };
+
+    // Hook once a room is attached
+    const originalAttach = attachRoomListener;
+    attachRoomListener = function() {
+      originalAttach();
+      logRefHandler();
+    };
+  </script>
+</body>
+</html>
